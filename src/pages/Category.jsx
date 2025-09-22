@@ -72,7 +72,8 @@ export default function Category() {
   // Adaptive session state stored in localStorage per category
   const sessionKey = `quiz_session_${id}`;
   const savedSession = JSON.parse(localStorage.getItem(sessionKey) || 'null');
-  const sessionSize = savedSession?.sessionSize || 10;
+  // prefer saved session size; otherwise use the global session_size from Home (so Home selector controls new sessions)
+  const sessionSize = savedSession?.sessionSize || Number(localStorage.getItem('session_size') || 10);
   const [index, setIndex] = useState(savedSession?.index || 0);
   const [score, setScore] = useState(savedSession?.score || 0);
   const [difficulty, setDifficulty] = useState(savedSession?.difficulty || 'easy');
@@ -80,6 +81,7 @@ export default function Category() {
 
   // Build adaptive pools from full DB for this category
   const pools = React.useMemo(() => buildAdaptivePools(questionsDB[id] || []), [id]);
+  const availableCount = (questionsDB[id] || []).length;
 
   // current question is chosen adaptively if not restored
   const [currentQuestion, setCurrentQuestion] = useState(() => savedSession?.currentQuestion || null);
@@ -218,6 +220,11 @@ export default function Category() {
 
   return (
     <main className="quiz-page">
+      {availableCount < sessionSize && (
+        <div className="category-warning" style={{background:'#fff3cd',border:'1px solid #ffeeba',padding:12,borderRadius:8,margin:'12px 16px'}}>
+          <strong>Notice:</strong> This category has only {availableCount} unique question{availableCount === 1 ? '' : 's'}, which is less than the selected session size of {sessionSize}. The quiz will end after {availableCount} question{availableCount === 1 ? '' : 's'}.
+        </div>
+      )}
       <button className="back-btn" onClick={() => navigate('/')}>← Back</button>
 
       <div className="quiz-header" style={{ background: `linear-gradient(90deg, ${category.colorStart}, ${category.colorEnd})` }}>
