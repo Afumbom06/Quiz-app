@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import questionsDB from '../data/questions.js';
 import categories from '../data/categories.js';
+import { saveScore } from '../utils/leaderboard.js';
+import { buildAdaptivePools, pickAdaptiveQuestion } from '../utils/questionPool.js';
 
 /*
  Category quiz page:
@@ -67,16 +69,48 @@ export default function Category() {
   const navigate = useNavigate();
   const sound = useSound();
   const category = categories.find(c => c.id === id) || { name: 'Unknown', icon: '❓', colorStart: '#ddd', colorEnd: '#bbb' };
-  const questions = questionsDB[id] || [{ id: 0, q: 'No questions yet', options: ['OK'], answer: 0 }];
+  // Adaptive session state stored in localStorage per category
+  const sessionKey = `quiz_session_${id}`;
+  const savedSession = JSON.parse(localStorage.getItem(sessionKey) || 'null');
+  const sessionSize = savedSession?.sessionSize || 10;
+  const [index, setIndex] = useState(savedSession?.index || 0);
+  const [score, setScore] = useState(savedSession?.score || 0);
+  const [difficulty, setDifficulty] = useState(savedSession?.difficulty || 'easy');
+  const [previouslyAskedIds, setPreviouslyAskedIds] = useState(savedSession?.previouslyAskedIds || []);
+
+  // Build adaptive pools from full DB for this category
+  const pools = React.useMemo(() => buildAdaptivePools(questionsDB[id] || []), [id]);
+
+  // current question is chosen adaptively if not restored
+  const [currentQuestion, setCurrentQuestion] = useState(() => savedSession?.currentQuestion || null);
 
   const QUESTION_TIME = 12; // seconds
-  const [index, setIndex] = useState(0);
   const [selected, setSelected] = useState(null);
-  const [score, setScore] = useState(0);
   const [finished, setFinished] = useState(false);
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
   const timerRef = useRef(null);
-  const [isPaused, setIsPaused] = useState(false);
+
+
+  // When index/score/difficulty change, persist session
+  useEffect(() => {
+    localStorage.setItem(sessionKey, JSON.stringify({ sessionSize, index, score, difficulty, previouslyAskedIds, currentQuestion }));
+  }, [index, score, difficulty, previouslyAskedIds, currentQuestion, sessionKey, sessionSize]);
+
+  // pick initial question on mount if none
+  useEffect(() => {
+    // If a saved session already reached its sessionSize, treat as finished
+    if (savedSession && typeof savedSession.sessionSize === 'number' && savedSession.index >= savedSession.sessionSize) {
+      setFinished(true);
+      return;
+    }
+
+    if (!currentQuestion && !finished) {
+      const res = pickAdaptiveQuestion(pools, previouslyAskedIds, difficulty);
+      if (res.question) setCurrentQuestion(res.question);
+      else setFinished(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // start timer for current question
   useEffect(() => {
@@ -87,7 +121,7 @@ export default function Category() {
       setTimeLeft(t => t - 1);
     }, 1000);
     return () => clearInterval(timerRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [index]);
 
   // when time runs out
@@ -108,7 +142,7 @@ export default function Category() {
     if (selected !== null) return;
     sound.click();
     setSelected(i);
-    const isCorrect = i === questions[index].answer;
+    const isCorrect = currentQuestion && i === currentQuestion.answer;
     if (isCorrect) {
       setScore(s => s + 1);
       sound.correct();
@@ -122,11 +156,47 @@ export default function Category() {
     }, 800);
   };
 
+  // manage streaks to escalate difficulty
+  const [streak, setStreak] = useState(savedSession?.streak || 0);
+
   const nextQuestion = (wasCorrect) => {
-    if (index + 1 < questions.length) {
-      setIndex(index + 1);
-    } else {
+    // gather nextPreviouslyAsked synchronously
+    const nextPreviouslyAsked = currentQuestion && currentQuestion.id != null ? [...previouslyAskedIds, currentQuestion.id] : previouslyAskedIds.slice();
+    setPreviouslyAskedIds(nextPreviouslyAsked);
+
+    // update streak and difficulty
+    if (wasCorrect) setStreak(s => s + 1);
+    else setStreak(0);
+
+    setDifficulty(d => {
+      if (wasCorrect && streak + 1 >= 2) {
+        if (d === 'easy') return 'medium';
+        if (d === 'medium') return 'hard';
+        return d;
+      }
+      if (!wasCorrect) {
+        if (d === 'hard') return 'medium';
+        if (d === 'medium') return 'easy';
+      }
+      return d;
+    });
+
+    // pick next adaptively using nextPreviouslyAsked
+    const res = pickAdaptiveQuestion(pools, nextPreviouslyAsked, difficulty);
+    // If we've already reached the configured session size, finish the quiz
+    if (index + 1 >= sessionSize) {
       setFinished(true);
+      setCurrentQuestion(null);
+      return;
+    }
+
+    if (res.question) {
+      setCurrentQuestion(res.question);
+      setIndex(i => i + 1);
+    } else {
+      // no more available questions in pools
+      setFinished(true);
+      setCurrentQuestion(null);
     }
   };
 
@@ -136,9 +206,15 @@ export default function Category() {
     setSelected(null);
     setFinished(false);
     setTimeLeft(QUESTION_TIME);
+    setPreviouslyAskedIds([]);
+    setDifficulty('easy');
+    setStreak(0);
+    setCurrentQuestion(null);
+    // Reset session in localStorage
+    localStorage.removeItem(sessionKey);
   };
 
-  const progressPct = Math.round(((index) / questions.length) * 100);
+  const progressPct = Math.round((index / sessionSize) * 100);
 
   return (
     <main className="quiz-page">
@@ -148,7 +224,7 @@ export default function Category() {
         <div className="cat-icon">{category.icon}</div>
         <div>
           <h2>{category.name}</h2>
-          <div className="header-sub">Score: <strong>{score}</strong> • Q {index + 1}/{questions.length}</div>
+          <div className="header-sub">Score: <strong>{score}</strong> • Q {Math.min(index + 1, sessionSize)}/{sessionSize}</div>
         </div>
       </div>
 
@@ -177,20 +253,20 @@ export default function Category() {
             </div>
           </div>
 
-          <div className="q-text">{questions[index].q}</div>
+          <div className="q-text">{currentQuestion ? currentQuestion.q : 'No more questions'}</div>
 
           <div className="options">
-            {questions[index].options.map((opt, i) => {
+            {currentQuestion && currentQuestion.options.map((opt, i) => {
               let cls = 'option';
               if (selected === null) cls = 'option';
               else {
-                if (i === questions[index].answer) cls = 'option correct';
+                if (i === currentQuestion.answer) cls = 'option correct';
                 else if (selected === i) cls = 'option wrong';
                 else cls = 'option dim';
               }
               // if timeout, show correct green and mark others dim
               if (selected === 'timeout') {
-                cls = i === questions[index].answer ? 'option correct' : 'option dim';
+                cls = i === currentQuestion.answer ? 'option correct' : 'option dim';
               }
               return (
                 <button key={i} className={cls} onClick={() => choose(i)} disabled={selected !== null}>
@@ -204,7 +280,11 @@ export default function Category() {
       ) : (
         <div className="result-card">
           <h3>Quiz Finished!</h3>
-          <p>Your score: <strong>{score}</strong> / {questions.length}</p>
+          <p>Your score: <strong>{score}</strong> / {sessionSize}</p>
+          <NameInput onSave={name => {
+            saveScore({ name, score });
+            navigate('/leaderboard');
+          }} />
           <div className="result-actions">
             <button onClick={restart} className="playagain">Play again</button>
             <button onClick={() => navigate('/')} className="backhome">Back to Categories</button>
@@ -212,5 +292,34 @@ export default function Category() {
         </div>
       )}
     </main>
+  );
+}
+
+// NameInput component for entering and saving player name
+function NameInput({ onSave }) {
+  const [name, setName] = useState(localStorage.getItem('player_name') || '');
+  const [submitted, setSubmitted] = useState(false);
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    localStorage.setItem('player_name', name);
+    setSubmitted(true);
+    onSave(name);
+  }
+  if (submitted) return <div className="name-saved">Score saved!</div>;
+  return (
+    <form className="name-input-form" onSubmit={handleSubmit} style={{margin:'16px 0'}}>
+      <input
+        className="name-input"
+        type="text"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="Enter your name"
+        maxLength={18}
+        required
+        style={{padding:'8px',borderRadius:8,border:'1px solid #ccc',marginRight:8}}
+      />
+      <button type="submit" className="save-btn" style={{padding:'8px 16px',borderRadius:8,background:'#1dd17d',color:'#fff',border:'none',fontWeight:700}}>Save Score</button>
+    </form>
   );
 }
