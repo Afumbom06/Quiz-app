@@ -1,0 +1,6 @@
+{
+  "appId": "com.yourdomain.quizgame",
+  "appName": "Quiz Game",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
