@@ -20,7 +20,7 @@ export default function Navbar() {
       src={logoImg}
       alt="Quizly Logo"
       className="h-6 w-auto object-contain" // small and proportional
-      style={{ maxHeight: "100px" }} // ensures max height
+      style={{ maxHeight: "80px" }} // ensures max height
     />
   </Link>
 </div>
