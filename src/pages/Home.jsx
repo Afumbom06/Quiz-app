@@ -6,13 +6,23 @@ export default function Home() {
   const [name, setName] = useState(localStorage.getItem('player_name') || '');
   const [showPrompt, setShowPrompt] = useState(!name);
   const [sessionSize, setSessionSize] = useState(Number(localStorage.getItem('session_size') || 20));
-  const [deferredPrompt, setDeferredPrompt] = useState(null); // PWA install prompt
+  const [deferredPrompt, setDeferredPrompt] = useState(null); // Android PWA prompt
 
-  // Listen for the PWA beforeinstallprompt event
+  // Detect iOS Safari
+  function isIos() {
+    return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+  }
+
+  // Check if already installed in standalone mode
+  function isInStandaloneMode() {
+    return ('standalone' in window.navigator) && window.navigator.standalone;
+  }
+
+  // Listen for the PWA beforeinstallprompt event (Android/Chrome)
   useEffect(() => {
     const handler = (e) => {
-      e.preventDefault(); // Prevent Chrome from showing automatic prompt
-      setDeferredPrompt(e); // Save the event to trigger later
+      e.preventDefault();
+      setDeferredPrompt(e);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -28,8 +38,8 @@ export default function Home() {
   // Trigger the PWA install prompt
   function handleInstall() {
     if (deferredPrompt) {
-      deferredPrompt.prompt(); // Show the Chrome install dialog
-      deferredPrompt.userChoice.then(() => setDeferredPrompt(null)); // Clear the saved event
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
     }
   }
 
@@ -40,19 +50,50 @@ export default function Home() {
           <button
             className="add-user-btn"
             onClick={() => setShowPrompt(true)}
-            style={{ padding: '8px 18px', borderRadius: 8, background: '#1dd17d', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+            style={{
+              padding: '8px 18px',
+              borderRadius: 8,
+              background: '#1dd17d',
+              color: '#fff',
+              border: 'none',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
           >
             {name ? 'Change Name' : 'Add User'}
           </button>
 
-          {/* PWA Install Button */}
+          {/* Android Chrome → Install button */}
           {deferredPrompt && (
             <button
               onClick={handleInstall}
-              style={{ padding: '8px 18px', borderRadius: 8, background: '#1d8df1', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}
+              style={{
+                padding: '8px 18px',
+                borderRadius: 8,
+                background: '#1d8df1',
+                color: '#fff',
+                border: 'none',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
             >
               Install App
             </button>
+          )}
+
+          {/* iOS Safari → Guide message */}
+          {isIos() && !isInStandaloneMode() && (
+            <div
+              style={{
+                background: '#fffae6',
+                padding: '8px 12px',
+                borderRadius: 8,
+                fontSize: '14px',
+                maxWidth: '200px'
+              }}
+            >
+              📲 On iPhone: Tap <strong>Share</strong> → <strong>Add to Home Screen</strong> to install.
+            </div>
           )}
         </div>
 
@@ -83,12 +124,24 @@ export default function Home() {
             placeholder="Enter your name to play"
             maxLength={18}
             required
-            style={{ padding: '8px', borderRadius: 8, border: '1px solid #ccc', marginRight: 8 }}
+            style={{
+              padding: '8px',
+              borderRadius: 8,
+              border: '1px solid #ccc',
+              marginRight: 8
+            }}
           />
           <button
             type="submit"
             className="save-btn"
-            style={{ padding: '8px 16px', borderRadius: 8, background: '#1dd17d', color: '#fff', border: 'none', fontWeight: 700 }}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 8,
+              background: '#1dd17d',
+              color: '#fff',
+              border: 'none',
+              fontWeight: 700
+            }}
           >
             Save
           </button>
