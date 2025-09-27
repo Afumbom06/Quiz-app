@@ -1,24 +1,30 @@
+// src/pages/Home.jsx
 import React, { useState, useEffect } from 'react';
 import categories from '../data/categories.js';
 import Card from '../components/Card.jsx';
+import { supabase } from '../utils/supabaseClient';
+import { addOrUpdateScore } from '../utils/leaderboard';
 
 export default function Home() {
-  const [name, setName] = useState(localStorage.getItem('player_name') || '');
-  const [showPrompt, setShowPrompt] = useState(!name);
   const [sessionSize, setSessionSize] = useState(Number(localStorage.getItem('session_size') || 20));
-  const [deferredPrompt, setDeferredPrompt] = useState(null); // Android PWA prompt
+  const [currentUser, setCurrentUser] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   // Detect iOS Safari
-  function isIos() {
-    return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-  }
+  const isIos = () => /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+  const isInStandaloneMode = () => ('standalone' in window.navigator) && window.navigator.standalone;
 
-  // Check if already installed in standalone mode
-  function isInStandaloneMode() {
-    return ('standalone' in window.navigator) && window.navigator.standalone;
-  }
+  // Get logged-in user on mount
+  useEffect(() => {
+    const fetchUser = async () => {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error) console.error(error);
+      else setCurrentUser(user);
+    };
+    fetchUser();
+  }, []);
 
-  // Listen for the PWA beforeinstallprompt event (Android/Chrome)
+  // PWA install prompt
   useEffect(() => {
     const handler = (e) => {
       e.preventDefault();
@@ -28,42 +34,27 @@ export default function Home() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  function handleSave(e) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    localStorage.setItem('player_name', name);
-    setShowPrompt(false);
-  }
-
-  // Trigger the PWA install prompt
-  function handleInstall() {
+  const handleInstall = () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then(() => setDeferredPrompt(null));
     }
-  }
+  };
+
+  // Save score for current user (no name prompt)
+  const handleSaveScore = async (score) => {
+    if (!currentUser) {
+      alert("Please log in to save your score!");
+      return;
+    }
+    await addOrUpdateScore(score);
+  };
 
   return (
-    <main className="home">
+    <main className="home" style={{ backgroundColor: "#0e1624", minHeight: '100vh', padding: '16px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', gap: 12 }}>
-          <button
-            className="add-user-btn"
-            onClick={() => setShowPrompt(true)}
-            style={{
-              padding: '8px 18px',
-              borderRadius: 8,
-              background: '#1dd17d',
-              color: '#fff',
-              border: 'none',
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            {name ? 'Change Name' : 'Add User'}
-          </button>
-
-          {/* Android Chrome → Install button */}
+          {/* Android Install button */}
           {deferredPrompt && (
             <button
               onClick={handleInstall}
@@ -98,7 +89,7 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontWeight: 700 }}>Session:</label>
+          <label style={{ fontWeight: 700, color: '#fff' }}>Session:</label>
           <select
             value={sessionSize}
             onChange={(e) => {
@@ -114,46 +105,17 @@ export default function Home() {
         </div>
       </div>
 
-      {showPrompt && (
-        <form className="name-input-form" onSubmit={handleSave} style={{ margin: '24px 0' }}>
-          <input
-            className="name-input"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter your name to play"
-            maxLength={18}
-            required
-            style={{
-              padding: '8px',
-              borderRadius: 8,
-              border: '1px solid #ccc',
-              marginRight: 8
-            }}
-          />
-          <button
-            type="submit"
-            className="save-btn"
-            style={{
-              padding: '8px 16px',
-              borderRadius: 8,
-              background: '#1dd17d',
-              color: '#fff',
-              border: 'none',
-              fontWeight: 700
-            }}
-          >
-            Save
-          </button>
-        </form>
-      )}
+      <h1 style={{ color: '#1dd17d', textAlign: 'center', marginBottom: 8 }}>🎯 Quiz Game</h1>
+      <p style={{ color: '#fff', textAlign: 'center', marginBottom: 24 }}>Choose a category to start</p>
 
-      <h5 className="title">Quiz Game 🎯</h5>
-      <p className="title">Choose a category to start</p>
-
-      <div className="grid">
+      <div className="grid" style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
         {categories.map((c) => (
-          <Card key={c.id} category={c} />
+          <Card
+            key={c.id}
+            category={c}
+            currentUser={currentUser}
+            onScore={(score) => handleSaveScore(score)} // save score automatically
+          />
         ))}
       </div>
     </main>

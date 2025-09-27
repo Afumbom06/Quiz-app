@@ -6,6 +6,8 @@ import Home from './pages/Home.jsx';
 import Category from './pages/Category.jsx';
 import Leaderboard from './pages/Leaderboard.jsx';
 import Practice from './pages/Practice.jsx'; 
+import Login from './pages/Login.jsx';
+import Signup from './pages/Signup.jsx';
 
 export default function App() {
   const location = useLocation();
@@ -28,6 +30,10 @@ export default function App() {
         <Route path="/category/:id" element={<Category />} />
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/practice" element={<Practice />} />
+
+        {/* Authentication Pages */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
       </Routes>
     </div>
   );
